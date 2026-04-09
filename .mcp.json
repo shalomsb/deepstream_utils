@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "deepstream-inference-builder": {
+      "command": "/usr/bin/python3",
+      "args": [
+        ".claude/inference_builder/mcp/mcp_server.py"
+      ]
+    }
+  }
+}

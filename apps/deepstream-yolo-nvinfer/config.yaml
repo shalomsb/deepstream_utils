@@ -1,0 +1,18 @@
+source: /streams/sample_720p.h264
+# source: /dev/video0
+# source: rtsp://192.168.1.100:554/stream
+
+streammux:
+  width: 1920
+  height: 1080
+  batch_size: 1
+
+pgie:
+  config_file: config_pgie_yolo11x.txt
+  network_width: 640
+  network_height: 640
+  conf_threshold: 0.25
+  nms_threshold: 0.45
+
+tracker:
+  config_file: config_tracker.txt

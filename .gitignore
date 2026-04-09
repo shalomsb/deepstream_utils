@@ -1,0 +1,33 @@
+# Models - ignore all contents, keep directory
+models/*
+!models/.gitkeep
+
+# Streams - ignore all contents, keep directory
+streams/*
+!streams/.gitkeep
+
+# Triton - ignore all contents, keep directories
+triton/*
+!triton/.gitkeep
+!triton/model_repo/
+triton/model_repo/*
+!triton/model_repo/.gitkeep
+
+# Image files
+*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
