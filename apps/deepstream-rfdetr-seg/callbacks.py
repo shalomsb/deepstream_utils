@@ -1,5 +1,4 @@
 import numpy as np
-import cv2
 import pyds
 import torch
 import torch.nn.functional as F
@@ -43,14 +42,12 @@ def _add_obj_meta_with_mask(batch_meta, frame_meta, left, top, width, height,
     rect.border_color.set(0.0, 1.0, 0.0, 0.8)
 
     if mask is not None and mask.size > 0:
-        mask_params = pyds.NvOSD_MaskParams.cast(obj_meta.mask_params)
+        mask_params = obj_meta.mask_params
         mask_params.height, mask_params.width = mask.shape[:2]
         mask_params.size = mask_params.height * mask_params.width * 4
         mask_params.threshold = mask_threshold
         allocated_mask_array = mask_params.alloc_mask_array()
-        mask_resized = cv2.resize(mask, (int(mask_params.width), int(mask_params.height)),
-                                   interpolation=cv2.INTER_LINEAR)
-        np.copyto(allocated_mask_array, mask_resized.flatten())
+        np.copyto(allocated_mask_array, mask.flatten())
         del allocated_mask_array
 
     pyds.nvds_add_obj_meta_to_frame(frame_meta, obj_meta, None)
@@ -95,7 +92,9 @@ def parse_rfdetr_seg_output(tensor_meta, net_w, net_h, mux_w, mux_h,
     # Softmax + confidence filter on GPU
     scores_t = torch.softmax(logits_t, dim=-1)
     max_scores_t, class_ids_t = scores_t.max(dim=-1)
-    keep = max_scores_t > conf_threshold
+    # Filter: confidence threshold + exclude background class (last index)
+    num_classes = logits_t.shape[-1]
+    keep = (max_scores_t > conf_threshold) & (class_ids_t != num_classes - 1)
 
     if not keep.any():
         return []
@@ -156,7 +155,7 @@ def parse_rfdetr_seg_output(tensor_meta, net_w, net_h, mux_w, mux_h,
 
             if (ix2 - ix1) >= 4 and (iy2 - iy1) >= 4:
                 crop = masks_t[i, iy1:iy2, ix1:ix2].cpu().numpy()
-                mask_crops[i] = (np.clip(crop, 0, 1) * 255).astype(np.uint8)
+                mask_crops[i] = np.clip(crop, 0, 1).astype(np.float32)
 
     results = []
     for i in range(len(left_cpu)):
