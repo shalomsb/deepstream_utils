@@ -1,0 +1,31 @@
+[property]
+gpu-id=0
+
+# ImageNet normalization (avg-std approximation):
+#   offsets = mean * 255
+#   net-scale-factor = 1 / (avg_std * 255) where avg_std = 0.2260
+net-scale-factor=0.01735207357279195
+offsets=123.675;116.28;103.53
+model-color-format=0
+
+# RF-DETR Large (704x704, COCO 80 classes, 56.5 AP)
+# Export: pip install rfdetr && python3 -c "from rfdetr import RFDETRLarge; m = RFDETRLarge(); m.export(output_dir='/models/rfdetr')"
+onnx-file=/models/rfdetr/inference_model.onnx
+model-engine-file=/models/rfdetr/inference_model.onnx_b1_gpu0_fp16.engine
+labelfile-path=/models/rfdetr/labels.txt
+
+infer-dims=3;704;704
+batch-size=1
+process-mode=1
+## 0=FP32, 1=INT8, 2=FP16
+network-mode=2
+num-detected-classes=80
+## 100=Other (raw tensor output for Python parsing)
+network-type=100
+interval=0
+gie-unique-id=1
+maintain-aspect-ratio=1
+symmetric-padding=1
+
+# Raw tensor output -- parsing done in Python callback
+output-tensor-meta=1

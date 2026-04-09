@@ -13,6 +13,10 @@ triton/*
 triton/model_repo/*
 !triton/model_repo/.gitkeep
 
+# Model weights
+*.pth
+*.pt
+
 # Image files
 *.png
 
