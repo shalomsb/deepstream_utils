@@ -1,0 +1,147 @@
+name: "grounding_dino_pipeline"
+platform: "ensemble"
+max_batch_size: 0
+
+input [
+  {
+    name: "raw_frame"
+    data_type: TYPE_FP32
+    dims: [1, 3, -1, -1]
+  }
+]
+
+output [
+  {
+    name: "boxes"
+    data_type: TYPE_FP32
+    dims: [-1, 4]
+  },
+  {
+    name: "scores"
+    data_type: TYPE_FP32
+    dims: [-1]
+  },
+  {
+    name: "class_ids"
+    data_type: TYPE_INT32
+    dims: [-1]
+  },
+  {
+    name: "num_detections"
+    data_type: TYPE_INT32
+    dims: [1]
+  }
+]
+
+ensemble_scheduling {
+  step [
+    {
+      model_name: "gdino_preprocess"
+      model_version: 1
+      input_map {
+        key: "raw_frame"
+        value: "raw_frame"
+      }
+      output_map {
+        key: "inputs"
+        value: "inputs"
+      }
+      output_map {
+        key: "input_ids"
+        value: "input_ids"
+      }
+      output_map {
+        key: "attention_mask"
+        value: "attention_mask"
+      }
+      output_map {
+        key: "position_ids"
+        value: "position_ids"
+      }
+      output_map {
+        key: "token_type_ids"
+        value: "token_type_ids"
+      }
+      output_map {
+        key: "text_token_mask"
+        value: "text_token_mask"
+      }
+      output_map {
+        key: "pos_map"
+        value: "pos_map"
+      }
+    },
+    {
+      model_name: "grounding_dino"
+      model_version: 1
+      input_map {
+        key: "inputs"
+        value: "inputs"
+      }
+      input_map {
+        key: "input_ids"
+        value: "input_ids"
+      }
+      input_map {
+        key: "attention_mask"
+        value: "attention_mask"
+      }
+      input_map {
+        key: "position_ids"
+        value: "position_ids"
+      }
+      input_map {
+        key: "token_type_ids"
+        value: "token_type_ids"
+      }
+      input_map {
+        key: "text_token_mask"
+        value: "text_token_mask"
+      }
+      output_map {
+        key: "pred_logits"
+        value: "pred_logits"
+      }
+      output_map {
+        key: "pred_boxes"
+        value: "pred_boxes"
+      }
+    },
+    {
+      model_name: "gdino_postprocess"
+      model_version: 1
+      input_map {
+        key: "pred_logits"
+        value: "pred_logits"
+      }
+      input_map {
+        key: "pred_boxes"
+        value: "pred_boxes"
+      }
+      input_map {
+        key: "raw_frame"
+        value: "raw_frame"
+      }
+      input_map {
+        key: "pos_map"
+        value: "pos_map"
+      }
+      output_map {
+        key: "boxes"
+        value: "boxes"
+      }
+      output_map {
+        key: "scores"
+        value: "scores"
+      }
+      output_map {
+        key: "class_ids"
+        value: "class_ids"
+      }
+      output_map {
+        key: "num_detections"
+        value: "num_detections"
+      }
+    }
+  ]
+}
