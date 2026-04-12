@@ -13,6 +13,7 @@ triton/model_repo/*/1/*.engine
 # Model weights
 *.pth
 *.pt
+*.onnx
 
 # Image files
 *.png
