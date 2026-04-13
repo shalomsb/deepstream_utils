@@ -1,8 +1,9 @@
 """Grounding DINO postprocessor: positive-map scoring, topK, NMS, box decode.
 
-Post-processing based on public open-source implementations:
-  - IDEA-Research/GroundingDINO (Apache 2.0): groundingdino/models/GroundingDINO/groundingdino.py
-  - HuggingFace Transformers (Apache 2.0): transformers/models/grounding_dino/modeling_grounding_dino.py
+Post-processing based on NVIDIA TAO Deploy (Apache 2.0 License)
+and IDEA-Research/GroundingDINO (Apache 2.0 License).
+  - TAO Deploy: nvidia_tao_deploy/cv/grounding_dino/utils.py :: post_process()
+  - TAO Deploy: nvidia_tao_deploy/cv/deformable_detr/utils.py :: sigmoid(), box_cxcywh_to_xyxy()
   - Paper: https://arxiv.org/abs/2303.05499
 
 Input:  pred_logits [1, 900, 256] float32 — per-token logits
@@ -46,64 +47,82 @@ class TritonPythonModel:
             pos_map = pb_utils.get_input_tensor_by_name(request, "pos_map").as_numpy()
 
             _, _, frame_h, frame_w = raw_frame.shape
+            bs = pred_logits.shape[0]
 
-            # Handle NaN from model (e.g. first black frame)
+            # Handle NaN from model (e.g. first black frame in streaming)
             if np.isnan(pred_logits).any() or np.isnan(pred_boxes).any():
                 pred_logits = np.nan_to_num(pred_logits, nan=-100.0)
                 pred_boxes = np.nan_to_num(pred_boxes, nan=0.0)
 
-            # Based on: IDEA-Research/GroundingDINO (Apache 2.0)
-            # Source: groundingdino/models/GroundingDINO/groundingdino.py :: forward()
-            # Step 1: sigmoid on per-token logits -> per-token probabilities
-            prob_to_token = sigmoid(pred_logits[0])  # [900, 256]
+            # ── Post-processing (TAO Deploy style) ────────────────────────
+            # Based on: nvidia_tao_deploy/cv/grounding_dino/utils.py :: post_process()
+
+            # Step 1: sigmoid on per-token logits
+            prob_to_token = sigmoid(pred_logits)
 
             # Step 2: normalize pos_map rows so each category sums to 1
-            # Based on: groundingdino/models/GroundingDINO/groundingdino.py
-            pm = pos_map[0].astype(np.float64)  # [num_cats, 256]
-            row_sums = pm.sum(axis=1, keepdims=True)
-            row_sums = np.where(row_sums != 0, row_sums, 1.0)
-            pm = (pm / row_sums).astype(np.float32)
+            pos_maps = pos_map[0].copy()
+            for label_ind in range(len(pos_maps)):
+                if pos_maps[label_ind].sum() != 0:
+                    pos_maps[label_ind] = pos_maps[label_ind] / pos_maps[label_ind].sum()
 
             # Step 3: map token probs to category probs via pos_map
-            # prob_to_label[q, c] = sum of token probs for category c at query q
-            prob_to_label = prob_to_token @ pm.T  # [900, num_cats]
+            prob_to_label = prob_to_token @ pos_maps.T
+            prob = prob_to_label
 
-            # Based on: HuggingFace Transformers (Apache 2.0)
-            # Source: transformers/models/grounding_dino/modeling_grounding_dino.py
             # Step 4: topK selection across all (query, category) pairs
-            flat_scores = prob_to_label.flatten()  # [900 * num_cats]
-            num_select = min(self.num_select, len(flat_scores))
-            topk_indices = np.argpartition(flat_scores, -num_select)[-num_select:]
-            topk_indices = topk_indices[np.argsort(flat_scores[topk_indices])[::-1]]
+            num_select = min(self.num_select, prob.reshape((bs, -1)).shape[1])
+            topk_indices = np.argsort(prob.reshape((bs, -1)), axis=1)[:, ::-1][:, :num_select]
 
-            scores = flat_scores[topk_indices]
-            query_indices = topk_indices // prob_to_label.shape[1]
-            class_ids = (topk_indices % prob_to_label.shape[1]).astype(np.int32)
+            # Step 5: extract scores
+            scores = np.array([
+                per_batch_prob[ind]
+                for per_batch_prob, ind in zip(prob.reshape((bs, -1)), topk_indices)
+            ])
 
-            # Step 5: confidence filter
-            above_threshold = scores > self.conf_threshold
+            # Step 6: get corresponding boxes and labels
+            topk_boxes = topk_indices // prob.shape[2]
+            labels = topk_indices % prob.shape[2]
+
+            # Step 7: convert to x1, y1, x2, y2 format
+            boxes = box_cxcywh_to_xyxy(pred_boxes)
+
+            # Step 8: take corresponding topk boxes
+            boxes = np.take_along_axis(
+                boxes,
+                np.repeat(np.expand_dims(topk_boxes, -1), 4, axis=-1),
+                axis=1,
+            )
+
+            # Step 9: scale back to frame pixels and clamp
+            target_sizes = np.array([[frame_w, frame_h, frame_w, frame_h]], dtype=np.float32)
+            boxes = boxes * target_sizes[:, None, :]
+
+            for i, target_size in enumerate(target_sizes):
+                w, h = target_size[0], target_size[1]
+                boxes[i, :, 0::2] = np.clip(boxes[i, :, 0::2], 0.0, w)
+                boxes[i, :, 1::2] = np.clip(boxes[i, :, 1::2], 0.0, h)
+
+            # ── Our additions for DeepStream streaming ────────────────────
+
+            # Flatten batch dim (bs=1 in DeepStream)
+            scores_flat = scores[0]
+            labels_flat = labels[0].astype(np.int32)
+            boxes_flat = boxes[0]
+
+            # Step 10: confidence threshold filter
+            above_threshold = scores_flat > self.conf_threshold
             if not above_threshold.any():
                 responses.append(self._empty_response())
                 continue
 
-            scores = scores[above_threshold]
-            class_ids = class_ids[above_threshold]
-            query_indices = query_indices[above_threshold]
+            scores_flat = scores_flat[above_threshold]
+            labels_flat = labels_flat[above_threshold]
+            boxes_flat = boxes_flat[above_threshold]
 
-            # Step 6: decode boxes cxcywh -> xyxy, scale to frame pixels
-            # Based on: groundingdino/util/box_ops.py :: box_cxcywh_to_xyxy()
-            selected_boxes = pred_boxes[0][query_indices]  # [N, 4]
-            boxes_xyxy = box_cxcywh_to_xyxy(selected_boxes)
-
-            # Scale normalized [0,1] to frame pixels and clamp
-            target_sizes = np.array([frame_w, frame_h, frame_w, frame_h], dtype=np.float32)
-            boxes_scaled = boxes_xyxy * target_sizes
-            boxes_scaled[:, 0::2] = np.clip(boxes_scaled[:, 0::2], 0, frame_w)
-            boxes_scaled[:, 1::2] = np.clip(boxes_scaled[:, 1::2], 0, frame_h)
-
-            # Step 7: per-class NMS
+            # Step 11: per-class NMS
             keep = np.array(
-                nms_per_class(boxes_scaled, scores, class_ids, self.nms_threshold),
+                nms_per_class(boxes_flat, scores_flat, labels_flat, self.nms_threshold),
                 dtype=np.int64,
             )
             if len(keep) == 0:
@@ -111,9 +130,9 @@ class TritonPythonModel:
                 continue
 
             kept = keep[:MAX_DETECTIONS]
-            boxes_out = np.ascontiguousarray(boxes_scaled[kept], dtype=np.float32)
-            scores_out = np.ascontiguousarray(scores[kept], dtype=np.float32)
-            class_ids_out = np.ascontiguousarray(class_ids[kept], dtype=np.int32)
+            boxes_out = np.ascontiguousarray(boxes_flat[kept], dtype=np.float32)
+            scores_out = np.ascontiguousarray(scores_flat[kept], dtype=np.float32)
+            class_ids_out = np.ascontiguousarray(labels_flat[kept], dtype=np.int32)
             num_det = np.array([len(kept)], dtype=np.int32)
 
             responses.append(pb_utils.InferenceResponse(output_tensors=[
@@ -139,26 +158,30 @@ class TritonPythonModel:
 
 # ---------------------------------------------------------------------------
 # Post-processing utilities
+# Based on: NVIDIA TAO Deploy (Apache 2.0)
+# Source: nvidia_tao_deploy/cv/deformable_detr/utils.py
 # ---------------------------------------------------------------------------
 
 
 def sigmoid(x):
-    """Numerically stable sigmoid."""
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -50, 50)))
+    """Numpy-based sigmoid function."""
+    return 1 / (1 + np.exp(-x))
 
 
-def box_cxcywh_to_xyxy(boxes):
-    """Convert boxes from center format to corner format.
+def box_cxcywh_to_xyxy(x):
+    """Convert box from cxcywh to xyxy.
 
-    Based on: IDEA-Research/GroundingDINO (Apache 2.0)
-    Source: groundingdino/util/box_ops.py :: box_cxcywh_to_xyxy()
+    Based on: nvidia_tao_deploy/cv/deformable_detr/utils.py :: box_cxcywh_to_xyxy()
     """
-    cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-    x1 = cx - 0.5 * w
-    y1 = cy - 0.5 * h
-    x2 = cx + 0.5 * w
-    y2 = cy + 0.5 * h
-    return np.stack([x1, y1, x2, y2], axis=-1)
+    x_c, y_c, w, h = x[..., 0], x[..., 1], x[..., 2], x[..., 3]
+    b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
+         (x_c + 0.5 * w), (y_c + 0.5 * h)]
+    return np.stack(b, axis=-1)
+
+
+# ---------------------------------------------------------------------------
+# NMS utility (not in TAO Deploy — needed for DeepStream streaming)
+# ---------------------------------------------------------------------------
 
 
 def iou_batch(box_a, boxes_b):

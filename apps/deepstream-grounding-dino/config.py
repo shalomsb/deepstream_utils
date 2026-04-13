@@ -9,7 +9,6 @@ class Config(AppConfig):
     def __init__(self, yaml_filename="config.yaml"):
         super().__init__(__file__, yaml_filename=yaml_filename)
         self.source = self.data["source"]
-        self.pgie_config = self.resolve("pgie", "config_file")
         self.tracker_config = self.resolve("tracker", "config_file")
 
         sm = self.data.get("streammux", {})
@@ -22,9 +21,25 @@ class Config(AppConfig):
         self.nms_threshold = pgie.get("nms_threshold", 0.5)
         self.labels = pgie.get("labels", [])
 
-        # Write config for Triton models so they pick up the same
-        # labels and thresholds defined here in config.yaml.
+        # Generate configs from templates with streammux dimensions
+        self.pgie_config = self._write_pgie_config()
         self._write_triton_config()
+
+    def _write_pgie_config(self):
+        """Generate nvinferserver config from template with streammux dimensions."""
+        template_path = self.resolve("pgie", "config_file")
+        generated_path = template_path.replace(".template", ".txt")
+
+        with open(template_path, "r") as f:
+            content = f.read()
+
+        content = content.replace("{width}", str(self.streammux_width))
+        content = content.replace("{height}", str(self.streammux_height))
+
+        with open(generated_path, "w") as f:
+            f.write(content)
+
+        return generated_path
 
     def _write_triton_config(self):
         """Write labels + thresholds to a YAML file the Triton
