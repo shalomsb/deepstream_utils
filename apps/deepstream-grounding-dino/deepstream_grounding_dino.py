@@ -5,8 +5,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 import gi
 gi.require_version('Gst', '1.0')
-from gi.repository import Gst
+from gi.repository import Gst, GLib
 from common.platform_info import PlatformInfo
+from common.FPS import PERF_DATA
 from ds_pipeline import (
     Logger,
     create_pipeline, create_source_bin, create_streammux,
@@ -16,6 +17,13 @@ from ds_pipeline import (
 )
 from config import Config
 from callbacks import pgie_src_probe, osd_probe
+
+perf_data = PERF_DATA(num_streams=1)
+
+
+def fps_probe(pad, info, u_data):
+    perf_data.update_fps("stream0")
+    return Gst.PadProbeReturn.OK
 
 
 def main():
@@ -61,6 +69,10 @@ def main():
     nvosd.get_static_pad("sink").add_probe(
         Gst.PadProbeType.BUFFER, osd_probe, config,
     )
+
+    # FPS counter
+    nvosd.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, fps_probe, 0)
+    GLib.timeout_add_seconds(2, perf_data.perf_print_callback)
 
     run_pipeline(pipeline, logger)
 

@@ -17,7 +17,11 @@ Output: boxes          [-1, 4]  float32 — xyxy frame-space pixels
 """
 
 import json
-import numpy as np
+
+import yaml
+import torch
+from torch.utils.dlpack import from_dlpack, to_dlpack
+from torchvision.ops import batched_nms
 import triton_python_backend_utils as pb_utils
 
 MAX_DETECTIONS = 300
@@ -29,7 +33,6 @@ class TritonPythonModel:
         params = model_config.get("parameters", {})
         config_path = params.get("config_file", {}).get("string_value", "")
 
-        import yaml
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
@@ -41,119 +44,113 @@ class TritonPythonModel:
     def execute(self, requests):
         responses = []
         for request in requests:
-            pred_logits = pb_utils.get_input_tensor_by_name(request, "pred_logits").as_numpy()
-            pred_boxes = pb_utils.get_input_tensor_by_name(request, "pred_boxes").as_numpy()
-            raw_frame = pb_utils.get_input_tensor_by_name(request, "raw_frame").as_numpy()
-            pos_map = pb_utils.get_input_tensor_by_name(request, "pos_map").as_numpy()
+            pred_logits = from_dlpack(
+                pb_utils.get_input_tensor_by_name(request, "pred_logits").to_dlpack()
+            )
+            pred_boxes = from_dlpack(
+                pb_utils.get_input_tensor_by_name(request, "pred_boxes").to_dlpack()
+            )
+            raw_frame = from_dlpack(
+                pb_utils.get_input_tensor_by_name(request, "raw_frame").to_dlpack()
+            )
+            pos_map = from_dlpack(
+                pb_utils.get_input_tensor_by_name(request, "pos_map").to_dlpack()
+            )
 
             _, _, frame_h, frame_w = raw_frame.shape
             bs = pred_logits.shape[0]
 
             # Handle NaN from model (e.g. first black frame in streaming)
-            if np.isnan(pred_logits).any() or np.isnan(pred_boxes).any():
-                pred_logits = np.nan_to_num(pred_logits, nan=-100.0)
-                pred_boxes = np.nan_to_num(pred_boxes, nan=0.0)
+            if torch.isnan(pred_logits).any() or torch.isnan(pred_boxes).any():
+                pred_logits = torch.nan_to_num(pred_logits, nan=-100.0)
+                pred_boxes = torch.nan_to_num(pred_boxes, nan=0.0)
 
             # ── Post-processing (TAO Deploy style) ────────────────────────
             # Based on: nvidia_tao_deploy/cv/grounding_dino/utils.py :: post_process()
 
             # Step 1: sigmoid on per-token logits
-            prob_to_token = sigmoid(pred_logits)
+            prob_to_token = torch.sigmoid(pred_logits)
 
             # Step 2: normalize pos_map rows so each category sums to 1
-            pos_maps = pos_map[0].copy()
-            for label_ind in range(len(pos_maps)):
-                if pos_maps[label_ind].sum() != 0:
-                    pos_maps[label_ind] = pos_maps[label_ind] / pos_maps[label_ind].sum()
+            pos_maps = pos_map[0].clone()
+            row_sums = pos_maps.sum(dim=1, keepdim=True)
+            row_sums = row_sums.clamp(min=1.0)
+            pos_maps = pos_maps / row_sums
 
             # Step 3: map token probs to category probs via pos_map
-            prob_to_label = prob_to_token @ pos_maps.T
-            prob = prob_to_label
+            prob = prob_to_token @ pos_maps.T  # [bs, 900, num_cats]
 
             # Step 4: topK selection across all (query, category) pairs
-            num_select = min(self.num_select, prob.reshape((bs, -1)).shape[1])
-            topk_indices = np.argsort(prob.reshape((bs, -1)), axis=1)[:, ::-1][:, :num_select]
+            num_select = min(self.num_select, prob.reshape(bs, -1).shape[1])
+            topk_scores, topk_indices = torch.topk(prob.reshape(bs, -1), num_select, dim=1)
 
-            # Step 5: extract scores
-            scores = np.array([
-                per_batch_prob[ind]
-                for per_batch_prob, ind in zip(prob.reshape((bs, -1)), topk_indices)
-            ])
-
-            # Step 6: get corresponding boxes and labels
-            topk_boxes = topk_indices // prob.shape[2]
+            # Step 5: get corresponding boxes and labels
+            topk_box_indices = topk_indices // prob.shape[2]
             labels = topk_indices % prob.shape[2]
 
-            # Step 7: convert to x1, y1, x2, y2 format
+            # Step 6: convert to x1, y1, x2, y2 format
             boxes = box_cxcywh_to_xyxy(pred_boxes)
 
-            # Step 8: take corresponding topk boxes
-            boxes = np.take_along_axis(
-                boxes,
-                np.repeat(np.expand_dims(topk_boxes, -1), 4, axis=-1),
-                axis=1,
+            # Step 7: take corresponding topk boxes
+            boxes = torch.gather(
+                boxes, 1, topk_box_indices.unsqueeze(-1).expand(-1, -1, 4)
             )
 
-            # Step 9: scale back to frame pixels and clamp
-            target_sizes = np.array([[frame_w, frame_h, frame_w, frame_h]], dtype=np.float32)
-            boxes = boxes * target_sizes[:, None, :]
+            # Step 8: scale back to frame pixels and clamp
+            scale = torch.tensor(
+                [[frame_w, frame_h, frame_w, frame_h]],
+                dtype=boxes.dtype, device=boxes.device,
+            )
+            boxes = boxes * scale.unsqueeze(1)
+            boxes[..., 0::2] = boxes[..., 0::2].clamp(0.0, float(frame_w))
+            boxes[..., 1::2] = boxes[..., 1::2].clamp(0.0, float(frame_h))
 
-            for i, target_size in enumerate(target_sizes):
-                w, h = target_size[0], target_size[1]
-                boxes[i, :, 0::2] = np.clip(boxes[i, :, 0::2], 0.0, w)
-                boxes[i, :, 1::2] = np.clip(boxes[i, :, 1::2], 0.0, h)
-
-            # ── Our additions for DeepStream streaming ────────────────────
+            # ── DeepStream streaming additions ────────────────────────────
 
             # Flatten batch dim (bs=1 in DeepStream)
-            scores_flat = scores[0]
-            labels_flat = labels[0].astype(np.int32)
+            scores_flat = topk_scores[0]
+            labels_flat = labels[0]
             boxes_flat = boxes[0]
 
-            # Step 10: confidence threshold filter
-            above_threshold = scores_flat > self.conf_threshold
-            if not above_threshold.any():
+            # Step 9: confidence threshold filter
+            above = scores_flat > self.conf_threshold
+            if not above.any():
                 responses.append(self._empty_response())
                 continue
 
-            scores_flat = scores_flat[above_threshold]
-            labels_flat = labels_flat[above_threshold]
-            boxes_flat = boxes_flat[above_threshold]
+            scores_flat = scores_flat[above]
+            labels_flat = labels_flat[above]
+            boxes_flat = boxes_flat[above]
 
-            # Step 11: per-class NMS
-            keep = np.array(
-                nms_per_class(boxes_flat, scores_flat, labels_flat, self.nms_threshold),
-                dtype=np.int64,
-            )
+            # Step 10: per-class NMS (torchvision batched_nms on GPU)
+            keep = batched_nms(boxes_flat, scores_flat, labels_flat, self.nms_threshold)
             if len(keep) == 0:
                 responses.append(self._empty_response())
                 continue
 
-            kept = keep[:MAX_DETECTIONS]
-            boxes_out = np.ascontiguousarray(boxes_flat[kept], dtype=np.float32)
-            scores_out = np.ascontiguousarray(scores_flat[kept], dtype=np.float32)
-            class_ids_out = np.ascontiguousarray(labels_flat[kept], dtype=np.int32)
-            num_det = np.array([len(kept)], dtype=np.int32)
+            keep = keep[:MAX_DETECTIONS]
+            boxes_out = boxes_flat[keep].contiguous()
+            scores_out = scores_flat[keep].contiguous()
+            class_ids_out = labels_flat[keep].to(torch.int32).contiguous()
+            num_det = torch.tensor([len(keep)], dtype=torch.int32, device=boxes.device)
 
             responses.append(pb_utils.InferenceResponse(output_tensors=[
-                pb_utils.Tensor("boxes", boxes_out),
-                pb_utils.Tensor("scores", scores_out),
-                pb_utils.Tensor("class_ids", class_ids_out),
-                pb_utils.Tensor("num_detections", num_det),
+                pb_utils.Tensor.from_dlpack("boxes", to_dlpack(boxes_out)),
+                pb_utils.Tensor.from_dlpack("scores", to_dlpack(scores_out)),
+                pb_utils.Tensor.from_dlpack("class_ids", to_dlpack(class_ids_out)),
+                pb_utils.Tensor.from_dlpack("num_detections", to_dlpack(num_det)),
             ]))
         return responses
 
     @staticmethod
     def _empty_response():
+        dev = "cuda"
         return pb_utils.InferenceResponse(output_tensors=[
-            pb_utils.Tensor("boxes", np.zeros((1, 4), dtype=np.float32)),
-            pb_utils.Tensor("scores", np.zeros((1,), dtype=np.float32)),
-            pb_utils.Tensor("class_ids", np.zeros((1,), dtype=np.int32)),
-            pb_utils.Tensor("num_detections", np.array([0], dtype=np.int32)),
+            pb_utils.Tensor.from_dlpack("boxes", to_dlpack(torch.zeros(1, 4, dtype=torch.float32, device=dev))),
+            pb_utils.Tensor.from_dlpack("scores", to_dlpack(torch.zeros(1, dtype=torch.float32, device=dev))),
+            pb_utils.Tensor.from_dlpack("class_ids", to_dlpack(torch.zeros(1, dtype=torch.int32, device=dev))),
+            pb_utils.Tensor.from_dlpack("num_detections", to_dlpack(torch.tensor([0], dtype=torch.int32, device=dev))),
         ])
-
-    def finalize(self):
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -161,11 +158,6 @@ class TritonPythonModel:
 # Based on: NVIDIA TAO Deploy (Apache 2.0)
 # Source: nvidia_tao_deploy/cv/deformable_detr/utils.py
 # ---------------------------------------------------------------------------
-
-
-def sigmoid(x):
-    """Numpy-based sigmoid function."""
-    return 1 / (1 + np.exp(-x))
 
 
 def box_cxcywh_to_xyxy(x):
@@ -176,45 +168,4 @@ def box_cxcywh_to_xyxy(x):
     x_c, y_c, w, h = x[..., 0], x[..., 1], x[..., 2], x[..., 3]
     b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
          (x_c + 0.5 * w), (y_c + 0.5 * h)]
-    return np.stack(b, axis=-1)
-
-
-# ---------------------------------------------------------------------------
-# NMS utility (not in TAO Deploy — needed for DeepStream streaming)
-# ---------------------------------------------------------------------------
-
-
-def iou_batch(box_a, boxes_b):
-    """Compute IoU between one box [1,4] and N boxes [N,4]. All xyxy format."""
-    x1 = np.maximum(box_a[:, 0], boxes_b[:, 0])
-    y1 = np.maximum(box_a[:, 1], boxes_b[:, 1])
-    x2 = np.minimum(box_a[:, 2], boxes_b[:, 2])
-    y2 = np.minimum(box_a[:, 3], boxes_b[:, 3])
-    inter = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
-    area_a = (box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])
-    area_b = (boxes_b[:, 2] - boxes_b[:, 0]) * (boxes_b[:, 3] - boxes_b[:, 1])
-    return inter / (area_a + area_b - inter + 1e-6)
-
-
-def nms_per_class(boxes, scores, class_ids, iou_threshold):
-    """Per-class greedy NMS using pure numpy."""
-    keep = []
-    for cls in np.unique(class_ids):
-        cls_mask = class_ids == cls
-        cls_idx = np.where(cls_mask)[0]
-        cls_boxes = boxes[cls_mask]
-        cls_scores = scores[cls_mask]
-
-        order = cls_scores.argsort()[::-1]
-        cls_idx = cls_idx[order]
-        cls_boxes = cls_boxes[order]
-
-        while len(cls_idx) > 0:
-            keep.append(cls_idx[0])
-            if len(cls_idx) == 1:
-                break
-            ious = iou_batch(cls_boxes[0:1], cls_boxes[1:])
-            remaining = ious <= iou_threshold
-            cls_idx = cls_idx[1:][remaining]
-            cls_boxes = cls_boxes[1:][remaining]
-    return keep
+    return torch.stack(b, dim=-1)

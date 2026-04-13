@@ -14,7 +14,7 @@ infer_config {
       name: "raw_frame"
       dims: [3, {height}, {width}]
     }
-    output_mem_type: MEMORY_TYPE_CPU
+    output_mem_type: MEMORY_TYPE_GPU
   }
   preprocess {
     network_format: IMAGE_FORMAT_RGB
