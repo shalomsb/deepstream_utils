@@ -18,6 +18,12 @@ triton/model_repo/*/1/*.engine
 # Image files
 *.png
 
+# Generated configs (created at runtime from .template files)
+apps/deepstream-grounding-dino/config_pgie_grounding_dino.txt
+
+# External reference repos
+tao_deploy/
+
 # Python
 __pycache__/
 *.pyc
