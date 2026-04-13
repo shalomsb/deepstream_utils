@@ -16,7 +16,6 @@ Output: boxes          [-1, 4]  float32 — xyxy frame-space pixels
 """
 
 import json
-import sys
 import numpy as np
 import triton_python_backend_utils as pb_utils
 
@@ -37,7 +36,6 @@ class TritonPythonModel:
         self.conf_threshold = float(config.get("conf_threshold", 0.3))
         self.nms_threshold = float(config.get("nms_threshold", 0.5))
         self.num_select = int(config.get("num_select", 300))
-        self._debug_count = 0
 
     def execute(self, requests):
         responses = []
@@ -69,11 +67,6 @@ class TritonPythonModel:
             # Step 3: map token probs to category probs via pos_map
             # prob_to_label[q, c] = sum of token probs for category c at query q
             prob_to_label = prob_to_token @ pm.T  # [900, num_cats]
-
-            if self._debug_count < 2:
-                self._debug_count += 1
-                print(f"[POSTPROCESS] prob_to_label shape={prob_to_label.shape} "
-                      f"max={prob_to_label.max():.4f}", file=sys.stderr, flush=True)
 
             # Based on: HuggingFace Transformers (Apache 2.0)
             # Source: transformers/models/grounding_dino/modeling_grounding_dino.py

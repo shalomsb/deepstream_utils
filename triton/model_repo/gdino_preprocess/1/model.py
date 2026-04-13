@@ -16,8 +16,9 @@ Output: inputs [1, 3, 544, 960] float32
 """
 
 import json
-import sys
+import yaml
 import numpy as np
+from transformers import AutoTokenizer
 import triton_python_backend_utils as pb_utils
 
 TARGET_H = 544
@@ -30,18 +31,15 @@ class TritonPythonModel:
         model_config = json.loads(args["model_config"])
         params = model_config.get("parameters", {})
         config_path = params.get("config_file", {}).get("string_value", "")
-
-        import yaml
+   
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
         self.categories = config.get("labels", [])
         self._prepare_text_inputs()
-        self._debug_count = 0
 
     def _prepare_text_inputs(self):
         """Tokenize categories and build all text tensors (cached at init)."""
-        from transformers import AutoTokenizer
 
         tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
@@ -90,15 +88,6 @@ class TritonPythonModel:
             img = raw[0].transpose(1, 2, 0)  # CHW -> HWC
             resized = cv2.resize(img, (TARGET_W, TARGET_H), interpolation=cv2.INTER_LINEAR)
             images = resized.transpose(2, 0, 1)[np.newaxis, ...].astype(np.float32)
-
-            if self._debug_count < 2:
-                self._debug_count += 1
-                print(f"[PREPROCESS] raw shape={raw.shape} range=[{raw.min():.0f}, {raw.max():.0f}]",
-                      file=sys.stderr, flush=True)
-                print(f"[PREPROCESS] input_ids[:10]={self.input_ids[0,:10]}",
-                      file=sys.stderr, flush=True)
-                print(f"[PREPROCESS] pos_map shape={self.pos_map.shape}",
-                      file=sys.stderr, flush=True)
 
             response = pb_utils.InferenceResponse(
                 output_tensors=[

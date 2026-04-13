@@ -39,6 +39,12 @@ def _parse_gdino_output(tensor_meta, frame_w, frame_h):
     if boxes is None or scores is None:
         return []
 
+    # Ensure 1D/2D even when Triton returns scalars for single detections
+    scores = np.atleast_1d(scores)
+    boxes = np.atleast_2d(boxes)
+    if class_ids is not None:
+        class_ids = np.atleast_1d(class_ids)
+
     detections = []
     for i in range(min(num_det, len(scores))):
         x1, y1, x2, y2 = boxes[i]
@@ -68,19 +74,7 @@ def pgie_src_probe(pad, info, u_data: Config):
         return Gst.PadProbeReturn.OK
 
     for frame in iter_frames(batch_meta):
-        _tensor_count = 0
         for tensor_meta in iter_output_tensors(frame):
-            _tensor_count += 1
-            # --- DEBUG: print on first frame only ---
-            if frame.frame_num == 0:
-                print(f"[DEBUG] tensor_meta.num_output_layers = {tensor_meta.num_output_layers}")
-                for _i in range(tensor_meta.num_output_layers):
-                    _layer = pyds.get_nvds_LayerInfo(tensor_meta, _i)
-                    _dims = [_layer.inferDims.d[j] for j in range(_layer.inferDims.numDims)]
-                    print(f"[DEBUG]   layer[{_i}] name={_layer.layerName!r} dims={_dims}")
-                    _data = get_layer_data(tensor_meta, _i)
-                    print(f"[DEBUG]   layer[{_i}] numpy shape={_data.shape} min={_data.min():.4f} max={_data.max():.4f}")
-            # --- END DEBUG ---
             detections = _parse_gdino_output(
                 tensor_meta,
                 config.streammux_width,
@@ -94,8 +88,6 @@ def pgie_src_probe(pad, info, u_data: Config):
                     confidence=det["confidence"],
                     unique_id=tensor_meta.unique_id,
                 )
-        if frame.frame_num == 0:
-            print(f"[DEBUG] total tensor_metas for frame 0: {_tensor_count}")
         frame.bInferDone = True
 
     return Gst.PadProbeReturn.OK
@@ -115,6 +107,5 @@ def osd_probe(pad, info, u_data: Config):
             set_obj_label(obj, f"{label} {obj.confidence:.2f} ID:{obj.object_id}")
         text = f"Frame={frame.frame_num} Objects={frame.num_obj_meta}"
         add_osd_text(batch_meta, frame, text)
-        print(text)
 
     return Gst.PadProbeReturn.OK
