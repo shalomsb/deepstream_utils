@@ -1,0 +1,8 @@
+numpy==1.26.4
+ml_dtypes==0.4.1
+opencv-python-headless<4.11
+pyyaml
+onnx==1.16.2
+onnxruntime
+onnxscript
+transformers

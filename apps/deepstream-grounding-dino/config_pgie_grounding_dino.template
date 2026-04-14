@@ -1,0 +1,37 @@
+infer_config {
+  unique_id: 1
+  gpu_ids: [0]
+  max_batch_size: 1
+  backend {
+    triton {
+      model_name: "grounding_dino_pipeline"
+      version: -1
+      model_repo {
+        root: "/triton/model_repo"
+      }
+    }
+    inputs {
+      name: "raw_frame"
+      dims: [3, {height}, {width}]
+    }
+    output_mem_type: MEMORY_TYPE_CPU
+  }
+  preprocess {
+    network_format: IMAGE_FORMAT_RGB
+    tensor_order: TENSOR_ORDER_LINEAR
+    maintain_aspect_ratio: 0
+    normalize {
+      scale_factor: 1.0
+    }
+  }
+  postprocess {
+    other {}
+  }
+}
+input_control {
+  process_mode: PROCESS_MODE_FULL_FRAME
+  interval: 0
+}
+output_control {
+  output_tensor_meta: true
+}

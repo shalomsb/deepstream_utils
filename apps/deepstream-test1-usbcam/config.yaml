@@ -1,0 +1,4 @@
+usbcam: /dev/video0
+
+pgie:
+  config_file: dstest1_pgie_config.txt

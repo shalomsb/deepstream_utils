@@ -1,0 +1,25 @@
+[property]
+gpu-id=0
+
+# ImageNet normalization (avg-std approximation)
+net-scale-factor=0.01735207357279195
+offsets=123.675;116.28;103.53
+model-color-format=0
+
+# RF-DETR Seg 2XLarge (768x768, COCO 80 classes, 49.9 seg AP)
+# Export: pip install rfdetr[plus] && python3 -c "from rfdetr import RFDETRSeg2XLarge; m = RFDETRSeg2XLarge(); m.export(output_dir='/models/rfdetr_seg_2xl')"
+onnx-file=/models/rfdetr_seg_2xl/inference_model.onnx
+model-engine-file=/models/rfdetr_seg_2xl/inference_model.onnx_b1_gpu0_fp16.engine
+labelfile-path=/models/rfdetr_seg_2xl/labels.txt
+
+infer-dims=3;768;768
+batch-size=1
+process-mode=1
+network-mode=2
+num-detected-classes=80
+network-type=100
+interval=0
+gie-unique-id=1
+maintain-aspect-ratio=1
+symmetric-padding=1
+output-tensor-meta=1

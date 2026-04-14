@@ -1,0 +1,6 @@
+conf_threshold: 0.3
+labels:
+- person
+- car
+nms_threshold: 0.5
+num_select: 300

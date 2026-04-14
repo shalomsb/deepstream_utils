@@ -1,0 +1,47 @@
+# Models - ignore all contents, keep directory
+models/*
+!models/.gitkeep
+
+# Streams - ignore all contents, keep directory
+streams/*
+!streams/.gitkeep
+
+# Model weights
+*.pth
+*.pt
+*.onnx
+*.plan
+
+# Image files
+*.png
+
+# Generated configs (created at runtime from .template files)
+apps/deepstream-grounding-dino/config_pgie_grounding_dino.txt
+
+# External reference repos
+tao_deploy/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude tooling
+.claude/
+
+# C++ reference apps
+cpp_apps/
+
+# MCP config
+.mcp.json

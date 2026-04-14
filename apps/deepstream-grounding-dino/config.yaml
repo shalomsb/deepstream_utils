@@ -1,0 +1,17 @@
+source: /streams/sample_720p.h264
+
+streammux:
+  width: 1280
+  height: 720
+  batch_size: 1
+
+pgie:
+  config_file: config_pgie_grounding_dino.template
+  conf_threshold: 0.3
+  nms_threshold: 0.5
+  labels:
+    - person
+    - car
+
+tracker:
+  config_file: config_tracker.txt

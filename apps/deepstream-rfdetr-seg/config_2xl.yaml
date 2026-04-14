@@ -1,0 +1,17 @@
+source: /streams/sample_720p.h264
+
+streammux:
+  width: 1920
+  height: 1080
+  batch_size: 1
+
+pgie:
+  config_file: config_pgie_rfdetr_seg_2xl.txt
+  network_width: 768
+  network_height: 768
+  conf_threshold: 0.5
+  mask_threshold: 0.5
+  labels_file: /models/rfdetr_seg_2xl/labels.txt
+
+tracker:
+  config_file: config_tracker.txt
