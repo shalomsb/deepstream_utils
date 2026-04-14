@@ -1,16 +1,17 @@
-# Models - ignore all contents, keep directory
-models/*
-!models/.gitkeep
+# Models - keep directory structure
+!models/
 
 # Streams - ignore all contents, keep directory
 streams/*
 !streams/.gitkeep
 
-# Model weights
+# Model weights and generated engines
 *.pth
 *.pt
 *.onnx
 *.plan
+*.engine
+*.bin
 
 # Image files
 *.png
