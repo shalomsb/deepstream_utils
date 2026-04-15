@@ -21,6 +21,14 @@ class Config(AppConfig):
         self.nms_threshold = pgie.get("nms_threshold", 0.5)
         self.labels = pgie.get("labels", [])
 
+        rtsp = self.data.get("rtsp", {})
+        self.rtsp_port = rtsp.get("port", 8554)
+        self.rtsp_udp_port = rtsp.get("udp_port", 5400)
+        self.rtsp_mount = rtsp.get("mount", "/ds-gdino")
+        self.rtsp_codec = rtsp.get("codec", "H264")
+        self.rtsp_bitrate = rtsp.get("bitrate", 4000000)
+        self.rtsp_enc_type = rtsp.get("enc_type", 0)
+
         # Generate configs from templates with streammux dimensions
         self.pgie_config = self._write_pgie_config()
         self._write_triton_config()

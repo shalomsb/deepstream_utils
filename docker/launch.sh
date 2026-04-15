@@ -43,8 +43,13 @@ DOCKER_TAG=deepstream-dev
 DOCKER_TAG_VERSION=v1.0
 DOCKER_NAME=deepstream-dev
 
-if ! [[ -z $DISPLAY ]]; then
+DISPLAY_ARGS=""
+if [[ -n $DISPLAY ]]; then
     xhost +local:root
+    DISPLAY_ARGS="-e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix"
+else
+    echo "No display detected — running in headless mode (EGL surfaceless)"
+    DISPLAY_ARGS="-e EGL_PLATFORM=surfaceless"
 fi
 
 if [[ $ACTION == '-b' ]]; then
@@ -55,7 +60,7 @@ if [[ $ACTION == '-b' ]]; then
 
 elif [[ $ACTION == '-r' ]] || [[ $ACTION == '-d' ]] ; then
     docker run --name=${DOCKER_NAME} \
-        -e DISPLAY=$DISPLAY \
+        $DISPLAY_ARGS \
         --rm --net=host --ipc=host --shm-size=4g --privileged -it \
 		--runtime=nvidia \
 		-v "$(pwd)":/workspace \
@@ -64,7 +69,6 @@ elif [[ $ACTION == '-r' ]] || [[ $ACTION == '-d' ]] ; then
         -v "$(pwd)/models":/models \
         -v "$(pwd)/streams":/streams \
 		-v "$(pwd)/triton/model_repo":/triton/model_repo \
-        -v /tmp/.X11-unix:/tmp/.X11-unix \
         -v /dev:/dev \
 		--entrypoint /opt/entrypoint.sh \
 		$DOCKER_TAG:$DOCKER_TAG_VERSION \

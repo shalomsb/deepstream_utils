@@ -6,11 +6,11 @@ streammux:
   batch_size: 1
 
 pgie:
-  config_file: config_pgie_rfdetr_2xl.txt
-  network_width: 880
-  network_height: 880
+  config_file: config_pgie_rfdetr_small.txt
+  network_width: 512
+  network_height: 512
   conf_threshold: 0.5
-  labels_file: /models/rfdetr_2xl/labels.txt
+  labels_file: /models/rfdetr/labels.txt
 
 tracker:
   config_file: config_tracker.txt

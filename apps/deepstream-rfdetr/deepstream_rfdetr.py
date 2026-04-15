@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import argparse
 from pathlib import Path
@@ -13,14 +14,20 @@ from ds_pipeline import (
     Logger,
     create_pipeline, create_source_bin, create_streammux,
     create_pgie, create_tracker, create_nvvidconv, create_nvosd, create_sink,
+    create_rtsp_output_bin, start_rtsp_server,
     run_pipeline,
 )
 from config import Config
 from callbacks import pgie_src_probe, osd_probe
 
 CONFIGS = {
-    "l":   "config_l.yaml",
-    "2xl": "config_2xl.yaml",
+    "nano":   "config_nano.yaml",
+    "small":  "config_small.yaml",
+    "base":   "config_base.yaml",
+    "medium": "config_medium.yaml",
+    "l":      "config_l.yaml",
+    "xl":     "config_xl.yaml",
+    "2xl":    "config_2xl.yaml",
 }
 
 perf_data = PERF_DATA(num_streams=1)
@@ -34,7 +41,7 @@ def fps_probe(pad, info, u_data):
 def main():
     parser = argparse.ArgumentParser(description="RF-DETR DeepStream pipeline")
     parser.add_argument("--model", choices=CONFIGS.keys(), default="l",
-                        help="Model size: l (Large, 704x704) or 2xl (2XLarge, 880x880)")
+                        help="Model size: nano (384), small (512), base (560), medium (576), l (704), xl (700), 2xl (880)")
     args = parser.parse_args()
 
     config = Config(yaml_filename=CONFIGS[args.model])
@@ -53,9 +60,19 @@ def main():
     tracker = create_tracker("rfdetr", config.tracker_config, logger)
     nvvidconv = create_nvvidconv("rfdetr", logger)
     nvosd = create_nvosd("rfdetr", logger)
-    sink = create_sink("rfdetr", platform_info, logger)
-    sink.set_property("sync", 0)
-    sink.set_property("qos", 0)
+
+    headless = not os.environ.get("DISPLAY")
+
+    if headless:
+        logger.info("No DISPLAY detected — using RTSP output")
+        sink = create_rtsp_output_bin(
+            "rfdetr", config.rtsp_codec, config.rtsp_bitrate,
+            config.rtsp_enc_type, platform_info, logger,
+        )
+    else:
+        sink = create_sink("rfdetr", platform_info, logger)
+        sink.set_property("sync", 0)
+        sink.set_property("qos", 0)
 
     for el in [source_bin, streammux, pgie, tracker, nvvidconv, nvosd, sink]:
         pipeline.add(el)
@@ -75,6 +92,12 @@ def main():
     nvosd.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, fps_probe, 0)
 
     GLib.timeout_add_seconds(2, perf_data.perf_print_callback)
+
+    if headless:
+        start_rtsp_server(
+            config.rtsp_port, config.rtsp_udp_port,
+            config.rtsp_mount, config.rtsp_codec, logger,
+        )
 
     run_pipeline(pipeline, logger)
 

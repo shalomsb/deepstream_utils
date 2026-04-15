@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -13,6 +14,7 @@ from ds_pipeline import (
     create_pipeline, create_source_bin, create_streammux,
     create_pgie_inferserver, create_tracker,
     create_nvvidconv, create_nvosd, create_sink,
+    create_rtsp_output_bin, start_rtsp_server,
     run_pipeline,
 )
 from config import Config
@@ -44,8 +46,18 @@ def main():
     tracker = create_tracker("gdino", config.tracker_config, logger)
     nvvidconv = create_nvvidconv("gdino", logger)
     nvosd = create_nvosd("gdino", logger)
-    sink = create_sink("gdino", platform_info, logger)
-    sink.set_property("sync", 0)
+
+    headless = not os.environ.get("DISPLAY")
+
+    if headless:
+        logger.info("No DISPLAY detected — using RTSP output")
+        sink = create_rtsp_output_bin(
+            "gdino", config.rtsp_codec, config.rtsp_bitrate,
+            config.rtsp_enc_type, platform_info, logger,
+        )
+    else:
+        sink = create_sink("gdino", platform_info, logger)
+        sink.set_property("sync", 0)
 
     for el in [source_bin, streammux, pgie, tracker, nvvidconv, nvosd, sink]:
         pipeline.add(el)
@@ -73,6 +85,12 @@ def main():
     # FPS counter
     nvosd.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, fps_probe, 0)
     GLib.timeout_add_seconds(2, perf_data.perf_print_callback)
+
+    if headless:
+        start_rtsp_server(
+            config.rtsp_port, config.rtsp_udp_port,
+            config.rtsp_mount, config.rtsp_codec, logger,
+        )
 
     run_pipeline(pipeline, logger)
 

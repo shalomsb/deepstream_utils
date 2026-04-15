@@ -15,3 +15,11 @@ pgie:
 
 tracker:
   config_file: config_tracker.txt
+
+rtsp:
+  port: 8554
+  udp_port: 5400
+  mount: /ds-gdino
+  codec: H264
+  bitrate: 4000000
+  enc_type: 0
