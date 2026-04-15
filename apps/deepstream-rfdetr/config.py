@@ -19,7 +19,7 @@ class Config(AppConfig):
         rtsp = self.data.get("rtsp", {})
         self.rtsp_port = rtsp.get("port", 8554)
         self.rtsp_udp_port = rtsp.get("udp_port", 5400)
-        self.rtsp_mount = rtsp.get("mount", "/ds-rfdetr")
+        self.rtsp_mount = rtsp.get("mount", "/stream")
         self.rtsp_codec = rtsp.get("codec", "H264")
         self.rtsp_bitrate = rtsp.get("bitrate", 4000000)
         self.rtsp_enc_type = rtsp.get("enc_type", 0)

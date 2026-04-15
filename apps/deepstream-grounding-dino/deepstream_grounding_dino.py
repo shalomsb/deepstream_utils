@@ -43,6 +43,7 @@ def main():
         height=config.streammux_height, logger=logger,
     )
     pgie = create_pgie_inferserver("gdino", config.pgie_config, logger)
+    pgie.set_property("interval", config.interval)
     tracker = create_tracker("gdino", config.tracker_config, logger)
     nvvidconv = create_nvvidconv("gdino", logger)
     nvosd = create_nvosd("gdino", logger)

@@ -17,6 +17,7 @@ class Config(AppConfig):
         self.streammux_batch_size = sm.get("batch_size", 1)
 
         pgie = self.data.get("pgie", {})
+        self.interval = pgie.get("interval", 0)
         self.conf_threshold = pgie.get("conf_threshold", 0.3)
         self.nms_threshold = pgie.get("nms_threshold", 0.5)
         self.labels = pgie.get("labels", [])
@@ -24,7 +25,7 @@ class Config(AppConfig):
         rtsp = self.data.get("rtsp", {})
         self.rtsp_port = rtsp.get("port", 8554)
         self.rtsp_udp_port = rtsp.get("udp_port", 5400)
-        self.rtsp_mount = rtsp.get("mount", "/ds-gdino")
+        self.rtsp_mount = rtsp.get("mount", "/stream")
         self.rtsp_codec = rtsp.get("codec", "H264")
         self.rtsp_bitrate = rtsp.get("bitrate", 4000000)
         self.rtsp_enc_type = rtsp.get("enc_type", 0)
