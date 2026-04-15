@@ -128,5 +128,4 @@ def osd_probe(pad, info, u_data: Config):
                 set_obj_label(obj, f"{labels[obj.class_id]} {obj.confidence:.2f} ID:{obj.object_id}")
         text = f"Frame={frame.frame_num} Objects={frame.num_obj_meta}"
         add_osd_text(batch_meta, frame, text)
-        print(text)
     return Gst.PadProbeReturn.OK

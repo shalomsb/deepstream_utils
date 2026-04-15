@@ -155,7 +155,7 @@ def create_rtsp_output_bin(name, codec, bitrate, enc_type, platform_info, logger
     udpsink.set_property("host", "224.224.255.255")
     udpsink.set_property("port", 5400)
     udpsink.set_property("async", False)
-    udpsink.set_property("sync", 1)
+    udpsink.set_property("sync", 0)
 
     nbin.add(nvvidconv)
     nbin.add(capsfilter)
