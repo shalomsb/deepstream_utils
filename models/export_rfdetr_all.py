@@ -32,6 +32,6 @@ for name, cls in MODELS.items():
     print(f"Exporting {cls.__name__} -> {output_dir}")
     print(f"{'='*60}")
     m = cls()
-    m.export(output_dir=output_dir)
+    m.export(output_dir=output_dir, dynamic_batch=True)
 
 print("\nDone! All models exported.")

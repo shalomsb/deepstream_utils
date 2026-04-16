@@ -11,7 +11,6 @@ model-color-format=0
 # RF-DETR Nano (384x384, COCO 80 classes)
 # Export: pip install rfdetr && python3 -c "from rfdetr import RFDETRNano; m = RFDETRNano(); m.export(output_dir='/models/rfdetr_nano')"
 onnx-file=/models/rfdetr_nano/inference_model.onnx
-model-engine-file=/models/rfdetr_nano/inference_model.onnx_b1_gpu0_fp16.engine
 labelfile-path=/models/rfdetr/labels.txt
 
 infer-dims=3;384;384

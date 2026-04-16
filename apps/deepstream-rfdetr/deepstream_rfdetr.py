@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 import os
 import sys
 import argparse
@@ -12,10 +13,11 @@ from common.platform_info import PlatformInfo
 from common.FPS import PERF_DATA
 from ds_pipeline import (
     Logger,
-    create_pipeline, create_source_bin, create_streammux,
+    create_pipeline, attach_sources, create_streammux,
     create_pgie, create_tracker, create_nvvidconv, create_nvosd, create_sink,
-    create_rtsp_output_bin, start_rtsp_server,
-    run_pipeline,
+    create_tiler, create_queue, create_rtsp_output_bin, start_rtsp_server,
+    run_pipeline, link_chain,
+    get_batch_meta, iter_frames,
 )
 from config import Config
 from callbacks import pgie_src_probe, osd_probe
@@ -30,11 +32,14 @@ CONFIGS = {
     "2xl":    "config_2xl.yaml",
 }
 
-perf_data = PERF_DATA(num_streams=1)
+perf_data = None
 
 
 def fps_probe(pad, info, u_data):
-    perf_data.update_fps("stream0")
+    batch_meta, _ = get_batch_meta(info)
+    if batch_meta:
+        for frame in iter_frames(batch_meta):
+            perf_data.update_fps(f"stream{frame.pad_index}")
     return Gst.PadProbeReturn.OK
 
 
@@ -50,14 +55,37 @@ def main():
     platform_info = PlatformInfo()
     Gst.init(None)
 
+    global perf_data
+    perf_data = PERF_DATA(num_streams=config.num_sources)
+
     pipeline = create_pipeline(name, logger)
 
-    source_bin = create_source_bin(0, config.source, logger)
     streammux = create_streammux("rfdetr", batch_size=config.streammux_batch_size,
                                  width=config.streammux_width,
                                  height=config.streammux_height, logger=logger)
+    pipeline.add(streammux)
+
+    is_live = attach_sources(pipeline, streammux, config.sources, logger)
+    if not is_live and config.num_sources > 1:
+        streammux.set_property("sync-inputs", 1)
+
     pgie = create_pgie("rfdetr", config.pgie_config, logger)
+    pgie.set_property("batch-size", config.num_sources)
+    with open(config.pgie_config) as f:
+        for line in f:
+            if line.startswith("onnx-file="):
+                onnx_path = line.split("=", 1)[1].strip()
+                engine_path = f"{onnx_path}_b{config.num_sources}_gpu0_fp16.engine"
+                pgie.set_property("model-engine-file", engine_path)
+                break
     tracker = create_tracker("rfdetr", config.tracker_config, logger)
+
+    rows = max(1, int(math.sqrt(config.num_sources)))
+    cols = math.ceil(config.num_sources / rows)
+    tiler = create_tiler("rfdetr", rows, cols,
+                         config.tiler_width, config.tiler_height,
+                         platform_info, logger)
+
     nvvidconv = create_nvvidconv("rfdetr", logger)
     nvosd = create_nvosd("rfdetr", logger)
 
@@ -74,22 +102,17 @@ def main():
         sink.set_property("sync", 0)
         sink.set_property("qos", 0)
 
-    for el in [source_bin, streammux, pgie, tracker, nvvidconv, nvosd, sink]:
+    queues = [create_queue(f"rfdetr-q{i}", logger) for i in range(5)]
+
+    for el in [pgie, tracker, tiler, nvvidconv, nvosd, sink, *queues]:
         pipeline.add(el)
 
-    srcpad = source_bin.get_static_pad("src")
-    sinkpad = streammux.request_pad_simple("sink_0")
-    srcpad.link(sinkpad)
-
-    streammux.link(pgie)
-    pgie.link(tracker)
-    tracker.link(nvvidconv)
-    nvvidconv.link(nvosd)
-    nvosd.link(sink)
+    link_chain(streammux, queues[0], pgie, queues[1], tracker, queues[2],
+               tiler, queues[3], nvvidconv, queues[4], nvosd, sink)
 
     pgie.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, pgie_src_probe, config)
-    nvosd.get_static_pad("sink").add_probe(Gst.PadProbeType.BUFFER, osd_probe, config)
-    nvosd.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, fps_probe, 0)
+    tracker.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, fps_probe, 0)
+    # nvosd.get_static_pad("sink").add_probe(Gst.PadProbeType.BUFFER, osd_probe, config)
 
     GLib.timeout_add_seconds(2, perf_data.perf_print_callback)
 

@@ -1,9 +1,9 @@
-source: /streams/sample_720p.h264
+sources:
+  - /streams/sample_720p.h264
 
 streammux:
   width: 1920
   height: 1080
-  batch_size: 1
 
 pgie:
   config_file: config_pgie_rfdetr_base.txt

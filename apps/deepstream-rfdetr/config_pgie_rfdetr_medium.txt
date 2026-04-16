@@ -11,7 +11,6 @@ model-color-format=0
 # RF-DETR Medium (576x576, COCO 80 classes)
 # Export: pip install rfdetr && python3 -c "from rfdetr import RFDETRMedium; m = RFDETRMedium(); m.export(output_dir='/models/rfdetr_medium')"
 onnx-file=/models/rfdetr_medium/inference_model.onnx
-model-engine-file=/models/rfdetr_medium/inference_model.onnx_b1_gpu0_fp16.engine
 labelfile-path=/models/rfdetr/labels.txt
 
 infer-dims=3;576;576

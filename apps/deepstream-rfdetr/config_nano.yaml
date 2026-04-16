@@ -1,9 +1,10 @@
-source: /streams/sample_720p.h264
+sources:
+  - /streams/sample_720p.h264
+  - /streams/sample_720p_copy.h264
 
 streammux:
-  width: 1920
-  height: 1080
-  batch_size: 1
+  width: 1280
+  height: 720
 
 pgie:
   config_file: config_pgie_rfdetr_nano.txt

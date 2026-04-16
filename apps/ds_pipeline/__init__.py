@@ -26,6 +26,7 @@ from ._elements import create_capsfilter
 
 # Bins
 from .bins import create_source_bin
+from .bins import attach_sources
 from .bins import create_rtsp_output_bin
 from .bins import create_filesrc_bin
 

@@ -118,6 +118,26 @@ def create_source_bin(index, uri, logger, file_loop=False):
         return create_nvurisrcbin_bin(name, uri, logger, file_loop=file_loop)
 
 
+def attach_sources(pipeline, streammux, uris, logger, file_loop=False):
+    """Create one source bin per URI and link each to streammux.sink_{i}.
+
+    Also flips streammux into live-source mode when any URI is RTSP.
+    Returns True if any URI is a live (RTSP) source, False otherwise.
+    """
+    is_live = False
+    for i, uri in enumerate(uris):
+        if uri.startswith("rtsp://"):
+            is_live = True
+        src = create_source_bin(i, uri, logger, file_loop=file_loop)
+        pipeline.add(src)
+        sinkpad = streammux.request_pad_simple(f"sink_{i}")
+        srcpad = src.get_static_pad("src")
+        srcpad.link(sinkpad)
+    if is_live:
+        streammux.set_property("live-source", 1)
+    return is_live
+
+
 # --- Output bins ---
 
 def create_rtsp_output_bin(name, codec, bitrate, enc_type, platform_info, logger):
