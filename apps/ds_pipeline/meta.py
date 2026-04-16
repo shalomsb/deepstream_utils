@@ -96,11 +96,16 @@ def iter_user_meta(meta_list, meta_type=None):
             return
 
 
-def iter_output_tensors(frame_meta):
+def iter_output_tensors(frame_meta, set_infer_done=True):
     """Yield NvDsInferTensorMeta from a frame's user metadata.
 
     Works with both nvinfer (output-tensor-meta=1) and
     nvinferserver (output_tensor_meta: true).
+
+    When set_infer_done=True (default), automatically sets
+    frame_meta.bInferDone = True only when tensors were produced.
+    This ensures the tracker carries forward detections on frames
+    skipped by interval > 0.
 
     Usage:
         for tensor_meta in iter_output_tensors(frame_meta):
@@ -108,9 +113,13 @@ def iter_output_tensors(frame_meta):
                 layer = pyds.get_nvds_LayerInfo(tensor_meta, i)
                 ...
     """
+    found = False
     for user_meta in iter_user_meta(frame_meta.frame_user_meta_list,
                                      pyds.NvDsMetaType.NVDSINFER_TENSOR_OUTPUT_META):
+        found = True
         yield pyds.NvDsInferTensorMeta.cast(user_meta.user_meta_data)
+    if set_infer_done and found:
+        frame_meta.bInferDone = True
 
 
 def get_layer_data(tensor_meta, layer_idx, dtype=ctypes.c_float):

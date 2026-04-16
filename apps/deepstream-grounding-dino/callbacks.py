@@ -74,9 +74,7 @@ def pgie_src_probe(pad, info, u_data: Config):
         return Gst.PadProbeReturn.OK
 
     for frame in iter_frames(batch_meta):
-        inferred = False
         for tensor_meta in iter_output_tensors(frame):
-            inferred = True
             detections = _parse_gdino_output(
                 tensor_meta,
                 config.streammux_width,
@@ -90,8 +88,6 @@ def pgie_src_probe(pad, info, u_data: Config):
                     confidence=det["confidence"],
                     unique_id=tensor_meta.unique_id,
                 )
-        if inferred:
-            frame.bInferDone = True
 
     return Gst.PadProbeReturn.OK
 
