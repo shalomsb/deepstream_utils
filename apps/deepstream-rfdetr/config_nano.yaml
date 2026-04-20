@@ -1,6 +1,5 @@
 sources:
   - /streams/sample_720p.h264
-  - /streams/sample_720p_copy.h264
 
 streammux:
   width: 1280
@@ -22,4 +21,3 @@ rtsp:
   mount: /stream
   codec: H264
   bitrate: 4000000
-  enc_type: 0

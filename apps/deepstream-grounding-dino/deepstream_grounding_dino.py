@@ -54,7 +54,7 @@ def main():
         logger.info("No DISPLAY detected — using RTSP output")
         sink = create_rtsp_output_bin(
             "gdino", config.rtsp_codec, config.rtsp_bitrate,
-            config.rtsp_enc_type, platform_info, logger,
+            platform_info, logger,
         )
     else:
         sink = create_sink("gdino", platform_info, logger)

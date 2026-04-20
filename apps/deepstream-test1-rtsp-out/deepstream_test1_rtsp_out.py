@@ -24,8 +24,6 @@ def parse_args():
                         help="RTSP Streaming Codec, default=H264")
     parser.add_argument("-b", "--bitrate", default=4000000, type=int,
                         help="Set the encoding bitrate")
-    parser.add_argument("-e", "--enc_type", default=0, choices=[0, 1], type=int,
-                        help="0: Hardware encoder, 1: Software encoder, default=0")
     return parser.parse_args()
 
 
@@ -43,7 +41,7 @@ def main():
     pgie = create_pgie("rtsp", Test1RtspConfig.PGIE, logger)
     nvvidconv = create_nvvidconv("rtsp", logger)
     nvosd = create_nvosd("rtsp", logger)
-    rtsp_out = create_rtsp_output_bin("rtsp", args.codec, args.bitrate, args.enc_type, platform_info, logger)
+    rtsp_out = create_rtsp_output_bin("rtsp", args.codec, args.bitrate, platform_info, logger)
 
     # Add to pipeline
     for element in [source_bin, streammux, pgie, nvvidconv, nvosd, rtsp_out]:

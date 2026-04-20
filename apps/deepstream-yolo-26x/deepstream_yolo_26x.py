@@ -15,21 +15,15 @@ from ds_pipeline import (
     Logger,
     create_pipeline, attach_sources, create_streammux,
     create_pgie, create_tracker, create_nvvidconv, create_nvosd, create_sink,
-    create_tiler, create_queue, create_rtsp_output_bin, start_rtsp_server,
+    create_tiler, create_queue, create_rtsp_output_bin, create_record_output_bin,
+    start_rtsp_server,
     run_pipeline, link_chain,
     get_batch_meta, iter_frames,
 )
 from config import Config
-from callbacks import pgie_src_probe, osd_probe
 
 CONFIGS = {
-    "nano":   "config_nano.yaml",
-    "small":  "config_small.yaml",
-    "base":   "config_base.yaml",
-    "medium": "config_medium.yaml",
-    "l":      "config_l.yaml",
-    "xl":     "config_xl.yaml",
-    "2xl":    "config_2xl.yaml",
+    "x": "config_x.yaml",
 }
 
 perf_data = None
@@ -44,15 +38,17 @@ def fps_probe(pad, info, u_data):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="RF-DETR DeepStream pipeline")
-    parser.add_argument("--model", choices=CONFIGS.keys(), default="l",
-                        help="Model size: nano (384), small (512), base (560), medium (576), l (704), xl (700), 2xl (880)")
+    parser = argparse.ArgumentParser(description="YOLO26 DeepStream pipeline")
+    parser.add_argument("--model", choices=CONFIGS.keys(), default="x",
+                        help="Model size (only 'x' supported for now)")
     parser.add_argument("--fake-sink", action="store_true",
                         help="Use fakesink instead of RTSP/display output (skips encoding)")
+    parser.add_argument("--record", metavar="FILE", default=None,
+                        help="Write encoded stream to FILE (.mkv) instead of RTSP/display (diagnostic)")
     args = parser.parse_args()
 
     config = Config(yaml_filename=CONFIGS[args.model])
-    name = f"deepstream-rfdetr-{args.model}"
+    name = f"deepstream-yolo-26{args.model}"
     logger = Logger(name)
     platform_info = PlatformInfo()
     Gst.init(None)
@@ -62,16 +58,17 @@ def main():
 
     pipeline = create_pipeline(name, logger)
 
-    streammux = create_streammux("rfdetr", batch_size=config.streammux_batch_size,
+    streammux = create_streammux("yolo26", batch_size=config.streammux_batch_size,
                                  width=config.streammux_width,
                                  height=config.streammux_height, logger=logger)
     pipeline.add(streammux)
 
-    is_live = attach_sources(pipeline, streammux, config.sources, logger)
+    is_live = attach_sources(pipeline, streammux, config.sources, logger,
+                             file_loop=True, platform_info=platform_info)
     if not is_live and config.num_sources > 1:
         streammux.set_property("sync-inputs", 1)
 
-    pgie = create_pgie("rfdetr", config.pgie_config, logger)
+    pgie = create_pgie("yolo26", config.pgie_config, logger)
     pgie.set_property("batch-size", config.num_sources)
     with open(config.pgie_config) as f:
         for line in f:
@@ -80,38 +77,44 @@ def main():
                 engine_path = f"{onnx_path}_b{config.num_sources}_gpu0_fp16.engine"
                 pgie.set_property("model-engine-file", engine_path)
                 break
-    tracker = create_tracker("rfdetr", config.tracker_config, logger)
+    tracker = create_tracker("yolo26", config.tracker_config, logger)
 
     rows = max(1, int(math.sqrt(config.num_sources)))
     cols = math.ceil(config.num_sources / rows)
-    tiler = create_tiler("rfdetr", rows, cols,
+    tiler = create_tiler("yolo26", rows, cols,
                          config.tiler_width, config.tiler_height,
                          platform_info, logger)
 
-    nvvidconv = create_nvvidconv("rfdetr", logger, platform_info)
-    nvosd = create_nvosd("rfdetr", logger)
+    nvvidconv = create_nvvidconv("yolo26", logger, platform_info)
+    nvosd = create_nvosd("yolo26", logger)
 
     headless = not os.environ.get("DISPLAY")
 
     if args.fake_sink:
         logger.info("Using fakesink (no display/RTSP output)")
         from ds_pipeline._elements import make_element
-        sink = make_element("fakesink", "fakesink-rfdetr", logger)
+        sink = make_element("fakesink", "fakesink-yolo26", logger)
         sink.set_property("sync", 0)
         sink.set_property("async", False)
         sink.set_property("qos", 0)
+    elif args.record:
+        logger.info(f"Recording to {args.record} (no RTSP)")
+        sink = create_record_output_bin(
+            "yolo26", args.record, config.rtsp_codec, config.rtsp_bitrate,
+            platform_info, logger,
+        )
     elif headless:
         logger.info("No DISPLAY detected — using RTSP output")
         sink = create_rtsp_output_bin(
-            "rfdetr", config.rtsp_codec, config.rtsp_bitrate,
+            "yolo26", config.rtsp_codec, config.rtsp_bitrate,
             platform_info, logger,
         )
     else:
-        sink = create_sink("rfdetr", platform_info, logger)
+        sink = create_sink("yolo26", platform_info, logger)
         sink.set_property("sync", 0)
         sink.set_property("qos", 0)
 
-    queues = [create_queue(f"rfdetr-q{i}", logger) for i in range(5)]
+    queues = [create_queue(f"yolo26-q{i}", logger) for i in range(5)]
 
     for el in [pgie, tracker, tiler, nvvidconv, nvosd, sink, *queues]:
         pipeline.add(el)
@@ -119,13 +122,11 @@ def main():
     link_chain(streammux, queues[0], pgie, queues[1], tracker, queues[2],
                tiler, queues[3], nvvidconv, queues[4], nvosd, sink)
 
-    pgie.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, pgie_src_probe, config)
     tracker.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, fps_probe, 0)
-    nvosd.get_static_pad("sink").add_probe(Gst.PadProbeType.BUFFER, osd_probe, config)
 
     GLib.timeout_add_seconds(2, perf_data.perf_print_callback)
 
-    if headless and not args.fake_sink:
+    if headless and not args.fake_sink and not args.record:
         start_rtsp_server(
             config.rtsp_port, config.rtsp_udp_port,
             config.rtsp_mount, config.rtsp_codec, logger,

@@ -7,7 +7,7 @@ import os
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
-from ._elements import make_element
+from ._elements import make_element, has_nvenc, create_encoder
 
 
 # --- Source bins ---
@@ -54,8 +54,13 @@ def _cb_newpad_nvurisrcbin(decodebin, decoder_src_pad, data):
         logger.error("Failed to link nvurisrcbin src pad to source bin ghost pad")
 
 
-def create_nvurisrcbin_bin(name, uri, logger, file_loop=False):
-    """Create a source bin using nvurisrcbin."""
+def create_nvurisrcbin_bin(name, uri, logger, file_loop=False, platform_info=None):
+    """Create a source bin using nvurisrcbin.
+
+    Per NVIDIA reference apps (deepstream-test3:L190), when looping a file the
+    underlying decoder needs `cudadec-memtype=0` on x86 dGPU only; on Jetson
+    iGPU the decoder uses its default Tegra memory type.
+    """
     logger.info("Creating source bin with nvurisrcbin")
 
     bin_name = f"source-bin-{name}"
@@ -68,7 +73,8 @@ def create_nvurisrcbin_bin(name, uri, logger, file_loop=False):
     uri_src_bin.set_property("uri", uri)
     if file_loop:
         uri_src_bin.set_property("file-loop", 1)
-        uri_src_bin.set_property("cudadec-memtype", 0)
+        if platform_info is not None and not platform_info.is_integrated_gpu():
+            uri_src_bin.set_property("cudadec-memtype", 0)
     uri_src_bin.connect("pad-added", _cb_newpad_nvurisrcbin, (nbin, logger))
 
     Gst.Bin.add(nbin, uri_src_bin)
@@ -106,7 +112,7 @@ def create_filesrc_bin(name, location, logger):
     return nbin
 
 
-def create_source_bin(index, uri, logger, file_loop=False):
+def create_source_bin(index, uri, logger, file_loop=False, platform_info=None):
     """Create a source bin for reading from a URI, file path, or USB camera."""
     name = f"input_{index}"
 
@@ -115,10 +121,11 @@ def create_source_bin(index, uri, logger, file_loop=False):
     else:
         if not uri.startswith(("rtsp://", "http://", "https://", "file://")):
             uri = "file://" + os.path.abspath(uri)
-        return create_nvurisrcbin_bin(name, uri, logger, file_loop=file_loop)
+        return create_nvurisrcbin_bin(name, uri, logger, file_loop=file_loop,
+                                      platform_info=platform_info)
 
 
-def attach_sources(pipeline, streammux, uris, logger, file_loop=False):
+def attach_sources(pipeline, streammux, uris, logger, file_loop=False, platform_info=None):
     """Create one source bin per URI and link each to streammux.sink_{i}.
 
     Also flips streammux into live-source mode when any URI is RTSP.
@@ -128,7 +135,8 @@ def attach_sources(pipeline, streammux, uris, logger, file_loop=False):
     for i, uri in enumerate(uris):
         if uri.startswith("rtsp://"):
             is_live = True
-        src = create_source_bin(i, uri, logger, file_loop=file_loop)
+        src = create_source_bin(i, uri, logger, file_loop=file_loop,
+                                platform_info=platform_info)
         pipeline.add(src)
         sinkpad = streammux.request_pad_simple(f"sink_{i}")
         srcpad = src.get_static_pad("src")
@@ -140,33 +148,56 @@ def attach_sources(pipeline, streammux, uris, logger, file_loop=False):
 
 # --- Output bins ---
 
-def create_rtsp_output_bin(name, codec, bitrate, enc_type, platform_info, logger):
+def _build_postosd_nvvidconv(name, platform_info, logger):
+    """Post-OSD nvvideoconvert shared by RTSP + record output bins."""
+    nvvidconv = make_element("nvvideoconvert", f"nvvidconv-postosd-{name}", logger)
+    if not has_nvenc() and platform_info.is_platform_aarch64():
+        # Orin Nano (aarch64 + no NVENC): force GPU compute. Without this,
+        # nvvideoconvert can fall to VIC which cannot transform CUDA_UNIFIED
+        # surfaces that arrive when `is_integrated_gpu()` misreports False due
+        # to a failing `cudaGetDeviceProperties` probe.
+        nvvidconv.set_property("compute-hw", 1)
+    elif not platform_info.is_platform_aarch64():
+        # x86 dGPU: CUDA_UNIFIED memory per NVIDIA reference apps.
+        nvvidconv.set_property("nvbuf-memory-type", 3)
+    return nvvidconv
+
+
+def _build_enc_caps_and_queue(name, logger):
+    """Encoder-input caps + leaky queue shared by RTSP + record output bins.
+
+    SW x264/x265enc needs system-memory caps; HW NVENC wants NVMM. Leaky queue
+    drops oldest frames instead of stalling when the encoder can't keep up.
+    """
+    caps_str = "video/x-raw(memory:NVMM), format=I420" if has_nvenc() else "video/x-raw, format=I420"
+    capsfilter = make_element("capsfilter", f"capsfilter-{name}", logger)
+    capsfilter.set_property("caps", Gst.Caps.from_string(caps_str))
+
+    enc_queue = make_element("queue", f"enc-queue-{name}", logger)
+    enc_queue.set_property("leaky", 2)  # 2 = downstream (drop oldest)
+    enc_queue.set_property("max-size-buffers", 4)
+    enc_queue.set_property("max-size-bytes", 0)
+    enc_queue.set_property("max-size-time", 0)
+    return capsfilter, enc_queue
+
+
+def create_rtsp_output_bin(name, codec, bitrate, platform_info, logger):
     """Create an RTSP output bin: nvvideoconvert -> capsfilter -> encoder -> rtppay -> udpsink.
 
     Args:
         codec: "H264" or "H265"
-        bitrate: encoding bitrate (e.g. 4000000)
-        enc_type: 0 = hardware encoder, 1 = software encoder
+        bitrate: encoding bitrate (e.g. 4000000, bits/s — converted for SW enc)
         platform_info: PlatformInfo instance
+
+    HW vs SW encoder is auto-selected via `has_nvenc()`. No `enc_type` flag
+    is needed in app YAMLs.
     """
     bin_name = f"{name}-rtsp-output-bin"
     nbin = Gst.Bin.new(bin_name)
 
-    nvvidconv = make_element("nvvideoconvert", f"nvvidconv-postosd-{name}", logger)
-
-    caps_str = "video/x-raw(memory:NVMM), format=I420" if enc_type == 0 else "video/x-raw, format=I420"
-    capsfilter = make_element("capsfilter", f"capsfilter-{name}", logger)
-    capsfilter.set_property("caps", Gst.Caps.from_string(caps_str))
-
-    hw_map = {"H264": "nvv4l2h264enc", "H265": "nvv4l2h265enc"}
-    sw_map = {"H264": "x264enc", "H265": "x265enc"}
-    factory = hw_map[codec] if enc_type == 0 else sw_map[codec]
-    encoder = make_element(factory, f"encoder-{name}", logger)
-    encoder.set_property("bitrate", bitrate)
-    if enc_type == 0:
-        encoder.set_property("insert-sps-pps", 1)
-        if platform_info.is_integrated_gpu():
-            encoder.set_property("preset-level", 1)
+    nvvidconv = _build_postosd_nvvidconv(name, platform_info, logger)
+    capsfilter, enc_queue = _build_enc_caps_and_queue(name, logger)
+    encoder = create_encoder(name, codec, bitrate, platform_info, logger)
 
     rtppay_factory = "rtph264pay" if codec == "H264" else "rtph265pay"
     rtppay = make_element(rtppay_factory, f"rtppay-{name}", logger)
@@ -177,19 +208,55 @@ def create_rtsp_output_bin(name, codec, bitrate, enc_type, platform_info, logger
     udpsink.set_property("async", False)
     udpsink.set_property("sync", 0)
 
-    nbin.add(nvvidconv)
-    nbin.add(capsfilter)
-    nbin.add(encoder)
-    nbin.add(rtppay)
-    nbin.add(udpsink)
+    for el in (nvvidconv, capsfilter, enc_queue, encoder, rtppay, udpsink):
+        nbin.add(el)
 
     nvvidconv.link(capsfilter)
-    capsfilter.link(encoder)
+    capsfilter.link(enc_queue)
+    enc_queue.link(encoder)
     encoder.link(rtppay)
     rtppay.link(udpsink)
 
-    sinkpad = nvvidconv.get_static_pad("sink")
-    ghost_sink = Gst.GhostPad.new("sink", sinkpad)
+    ghost_sink = Gst.GhostPad.new("sink", nvvidconv.get_static_pad("sink"))
     nbin.add_pad(ghost_sink)
 
+    return nbin
+
+
+def create_record_output_bin(name, location, codec, bitrate, platform_info, logger):
+    """Create a file-record output bin: nvvidconv -> capsfilter -> encoder -> parser -> matroskamux -> filesink.
+
+    Same encoder config as create_rtsp_output_bin, but terminates in filesink
+    instead of udpsink. Matroska container tolerates truncation on abrupt
+    shutdown better than mp4.
+    """
+    bin_name = f"{name}-record-output-bin"
+    nbin = Gst.Bin.new(bin_name)
+
+    nvvidconv = _build_postosd_nvvidconv(name, platform_info, logger)
+    capsfilter, enc_queue = _build_enc_caps_and_queue(name, logger)
+    encoder = create_encoder(name, codec, bitrate, platform_info, logger)
+
+    parser_factory = "h264parse" if codec == "H264" else "h265parse"
+    parser = make_element(parser_factory, f"parser-{name}", logger)
+
+    muxer = make_element("matroskamux", f"mkvmux-{name}", logger)
+
+    filesink = make_element("filesink", f"filesink-{name}", logger)
+    filesink.set_property("location", location)
+    filesink.set_property("sync", False)
+    filesink.set_property("async", False)
+
+    for el in (nvvidconv, capsfilter, enc_queue, encoder, parser, muxer, filesink):
+        nbin.add(el)
+
+    nvvidconv.link(capsfilter)
+    capsfilter.link(enc_queue)
+    enc_queue.link(encoder)
+    encoder.link(parser)
+    parser.link(muxer)
+    muxer.link(filesink)
+
+    ghost_sink = Gst.GhostPad.new("sink", nvvidconv.get_static_pad("sink"))
+    nbin.add_pad(ghost_sink)
     return nbin

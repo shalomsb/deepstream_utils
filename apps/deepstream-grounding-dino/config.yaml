@@ -23,4 +23,3 @@ rtsp:
   mount: /stream
   codec: H264
   bitrate: 4000000
-  enc_type: 0

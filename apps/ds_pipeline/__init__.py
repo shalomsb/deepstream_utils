@@ -10,6 +10,7 @@ Usage:
 
 # Element factories (public subset)
 from ._elements import make_element
+from ._elements import has_nvenc
 from ._elements import create_pipeline
 from ._elements import create_streammux
 from ._elements import create_pgie
@@ -28,6 +29,7 @@ from ._elements import create_capsfilter
 from .bins import create_source_bin
 from .bins import attach_sources
 from .bins import create_rtsp_output_bin
+from .bins import create_record_output_bin
 from .bins import create_filesrc_bin
 
 # Metadata (iteration + tensor extraction + object creation)

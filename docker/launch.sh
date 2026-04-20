@@ -63,6 +63,8 @@ elif [[ $ACTION == '-r' ]] || [[ $ACTION == '-d' ]] ; then
         $DISPLAY_ARGS \
         --rm --net=host --ipc=host --shm-size=4g --privileged -it \
 		--runtime=nvidia \
+		-e NVIDIA_VISIBLE_DEVICES=all \
+		-e NVIDIA_DRIVER_CAPABILITIES=all \
 		-v "$(pwd)":/workspace \
 		-v "$(pwd)/apps":/apps \
 		-v "$(pwd)/cpp_apps":/cpp_apps \

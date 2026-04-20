@@ -1,16 +1,13 @@
 sources:
   - /streams/sample_720p.h264
+  - rtsp://admin:Galor555@10.0.0.181:554/Streaming/Channels/101
 
 streammux:
-  width: 1920
-  height: 1080
+  width: 1280
+  height: 720
 
 pgie:
-  config_file: config_pgie_rfdetr.txt
-  network_width: 704
-  network_height: 704
-  conf_threshold: 0.5
-  labels_file: /models/rfdetr/labels.txt
+  config_file: config_pgie_yolo26_x.txt
 
 tracker:
   config_file: config_tracker.txt

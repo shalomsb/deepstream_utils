@@ -28,7 +28,6 @@ class Config(AppConfig):
         self.rtsp_mount = rtsp.get("mount", "/stream")
         self.rtsp_codec = rtsp.get("codec", "H264")
         self.rtsp_bitrate = rtsp.get("bitrate", 4000000)
-        self.rtsp_enc_type = rtsp.get("enc_type", 0)
 
         # Generate configs from templates with streammux dimensions
         self.pgie_config = self._write_pgie_config()

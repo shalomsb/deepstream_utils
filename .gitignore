@@ -12,6 +12,7 @@ streams/*
 *.plan
 *.engine
 *.bin
+*.so
 
 # Image files
 *.png
@@ -21,6 +22,7 @@ apps/deepstream-grounding-dino/config_pgie_grounding_dino.txt
 
 # External reference repos
 tao_deploy/
+deepstream_python_apps/
 
 # Python
 __pycache__/
