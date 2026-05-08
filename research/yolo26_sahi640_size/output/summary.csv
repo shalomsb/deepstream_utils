@@ -1,0 +1,6 @@
+strategy,n,≥0.5,≥0.25,params_M,weight_MB,latency_s,cls_0_person,cls_2_car,cls_3_motorcycle,cls_5_bus,cls_7_truck,cls_9_traffic light,cls_10_fire hydrant
+yolo26x sahi640,84,21,42,59.0,113.2,0.07,3,53,1,1,25,1,0
+yolo26l sahi640,83,29,52,26.3,50.7,0.04,3,62,1,0,17,0,0
+yolo26m sahi640,72,20,44,21.9,42.2,0.032,2,54,1,1,13,0,1
+yolo26s sahi640,92,30,62,10.0,19.5,0.024,2,66,1,0,23,0,0
+yolo26n sahi640,76,29,54,2.6,5.3,0.022,2,61,1,0,11,1,0

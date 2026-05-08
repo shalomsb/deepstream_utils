@@ -1,0 +1,6 @@
+strategy,n,conf>=0.5,conf>=0.25,latency_s,cls_0_person,cls_2_car,cls_3_motorcycle,cls_5_bus,cls_7_truck,cls_9_traffic light
+default_640,36,5,16,0.008,1,23,1,0,11,0
+upscale_1280,85,19,41,0.024,6,55,2,1,21,0
+sahi_640,84,21,42,0.07,3,53,1,1,25,1
+sahi_320,135,64,95,0.176,5,91,1,0,38,0
+sahi_pkg v0.11.36,135,64,96,0.55,5,91,1,0,38,0
