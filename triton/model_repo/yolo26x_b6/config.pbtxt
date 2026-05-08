@@ -1,0 +1,30 @@
+name: "yolo26x_b6"
+platform: "tensorrt_plan"
+max_batch_size: 0
+
+# Same ONNX as yolo26x, but the .plan is built with fixed batch=6 for the
+# SAHI ensemble (which slices each frame into 6 tiles).
+input [
+  {
+    name: "images"
+    data_type: TYPE_FP32
+    dims: [ 6, 3, 640, 640 ]
+  }
+]
+
+# Post-NMS detections per tile: [x1, y1, x2, y2, conf, cls] (tile-local coords).
+output [
+  {
+    name: "output0"
+    data_type: TYPE_FP32
+    dims: [ 6, 300, 6 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]

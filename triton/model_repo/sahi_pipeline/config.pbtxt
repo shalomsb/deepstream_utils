@@ -1,0 +1,62 @@
+name: "sahi_pipeline"
+platform: "ensemble"
+max_batch_size: 0
+
+# DeepStream sends one fp32 [0,1] RGB frame per call.
+input [
+  {
+    name: "raw_frame"
+    data_type: TYPE_FP32
+    dims: [ 1, 3, 720, 1280 ]
+  }
+]
+
+# Final merged detections in GLOBAL frame coords (already post-GREEDYNMM).
+output [
+  {
+    name: "boxes"
+    data_type: TYPE_FP32
+    dims: [ -1, 4 ]
+  },
+  {
+    name: "scores"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "classes"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  },
+  {
+    name: "num_dets"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  }
+]
+
+ensemble_scheduling {
+  step [
+    {
+      model_name: "sahi_preprocess"
+      model_version: 1
+      input_map  { key: "raw_frame" value: "raw_frame" }
+      output_map { key: "tiles"     value: "tiles" }
+    },
+    {
+      model_name: "yolo26x_b6"
+      model_version: 1
+      input_map  { key: "images"  value: "tiles" }
+      output_map { key: "output0" value: "tile_dets" }
+    },
+    {
+      model_name: "sahi_postprocess"
+      model_version: 1
+      input_map  { key: "tile_dets" value: "tile_dets" }
+      output_map { key: "boxes"     value: "boxes" }
+      output_map { key: "scores"    value: "scores" }
+      output_map { key: "classes"   value: "classes" }
+      output_map { key: "num_dets"  value: "num_dets" }
+    }
+  ]
+}
