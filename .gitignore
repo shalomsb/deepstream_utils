@@ -6,16 +6,11 @@ models/*
 streams/*
 !streams/.gitkeep
 
-# Triton - ignore all contents, keep directories
-triton/*
-!triton/.gitkeep
-!triton/model_repo/
-triton/model_repo/*
-!triton/model_repo/.gitkeep
-
-# Model weights
+# Model weights and engine artifacts
 *.pth
 *.pt
+*.onnx
+*.plan
 
 # Image files
 *.png
