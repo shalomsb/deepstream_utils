@@ -1,0 +1,29 @@
+name: "sahi_preprocess"
+platform: "tensorrt_plan"
+max_batch_size: 0
+
+# Input: full frame, RGB, NCHW, fp32 in [0,1] (DS preprocess normalizes /255).
+input [
+  {
+    name: "raw_frame"
+    data_type: TYPE_FP32
+    dims: [ 1, 3, 720, 1280 ]
+  }
+]
+
+# Output: 6 SAHI tiles concatenated along batch axis.
+output [
+  {
+    name: "tiles"
+    data_type: TYPE_FP32
+    dims: [ 6, 3, 640, 640 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]

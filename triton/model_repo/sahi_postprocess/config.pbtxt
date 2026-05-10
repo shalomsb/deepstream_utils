@@ -1,0 +1,43 @@
+name: "sahi_postprocess"
+backend: "python"
+max_batch_size: 0
+
+# Per-tile detections from yolo26x_b6 in TILE-LOCAL coords (0..640).
+input [
+  {
+    name: "tile_dets"
+    data_type: TYPE_FP32
+    dims: [ 6, 300, 6 ]
+  }
+]
+
+# Merged detections in GLOBAL frame coords (1280x720).
+output [
+  {
+    name: "boxes"
+    data_type: TYPE_FP32
+    dims: [ -1, 4 ]
+  },
+  {
+    name: "scores"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "classes"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  },
+  {
+    name: "num_dets"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]

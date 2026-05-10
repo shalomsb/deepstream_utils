@@ -1,0 +1,30 @@
+name: "yolo26x"
+platform: "tensorrt_plan"
+
+# Triton prepends the batch dim, so dims here exclude batch.
+# To change max batch: rebuild the .plan with new --maxShapes and update this value.
+max_batch_size: 1
+
+input [
+  {
+    name: "images"
+    data_type: TYPE_FP32
+    dims: [ 3, 640, 640 ]
+  }
+]
+
+output [
+  {
+    name: "output0"
+    data_type: TYPE_FP32
+    dims: [ 300, 6 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]

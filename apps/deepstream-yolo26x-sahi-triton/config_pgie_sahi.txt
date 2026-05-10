@@ -1,0 +1,52 @@
+infer_config {
+  unique_id: 1
+  gpu_ids: [0]
+  max_batch_size: 1
+
+  backend {
+    triton {
+      model_name: "sahi_pipeline"
+      version: -1
+      model_repo {
+        root: "/triton/model_repo"
+        strict_model_config: false
+        log_level: 2
+      }
+    }
+  }
+
+  # DS resizes the streammux frame to 1280x720, normalizes /255, RGB NCHW.
+  # The ensemble's preprocess.plan then slices into 6 tiles.
+  preprocess {
+    network_format: IMAGE_FORMAT_RGB
+    tensor_order: TENSOR_ORDER_LINEAR
+    tensor_name: "raw_frame"
+    maintain_aspect_ratio: 0
+    frame_scaling_hw: FRAME_SCALING_HW_DEFAULT
+    frame_scaling_filter: 1
+    normalize {
+      scale_factor: 0.00392156862745098
+      channel_offsets: [0.0, 0.0, 0.0]
+    }
+  }
+
+  # Final detections come from the ensemble already merged -- DS just unpacks.
+  postprocess {
+    labelfile_path: "/models/yolo26/labels.txt"
+    other {}
+  }
+
+  extra {
+    copy_input_to_host_buffers: false
+    output_buffer_pool_size: 2
+  }
+}
+
+input_control {
+  process_mode: PROCESS_MODE_FULL_FRAME
+  interval: 0
+}
+
+output_control {
+  output_tensor_meta: true
+}

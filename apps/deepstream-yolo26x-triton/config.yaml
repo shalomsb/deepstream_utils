@@ -1,0 +1,16 @@
+source: /streams/sample_720p.h264
+
+streammux:
+  width: 1920
+  height: 1080
+  batch_size: 1
+
+pgie:
+  config_file: config_pgie_yolo26x_triton.txt
+  network_width: 640
+  network_height: 640
+  conf_threshold: 0.25
+  labels_file: /models/yolo26/labels.txt
+
+tracker:
+  config_file: config_tracker.txt

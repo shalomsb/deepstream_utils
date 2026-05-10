@@ -6,23 +6,14 @@ models/*
 streams/*
 !streams/.gitkeep
 
-# Triton - ignore engine files only
-triton/model_repo/*/1/*.plan
-triton/model_repo/*/1/*.engine
-
-# Model weights
+# Model weights and engine artifacts
 *.pth
 *.pt
 *.onnx
+*.plan
 
 # Image files
 *.png
-
-# Generated configs (created at runtime from .template files)
-apps/deepstream-grounding-dino/config_pgie_grounding_dino.txt
-
-# External reference repos
-tao_deploy/
 
 # Python
 __pycache__/
