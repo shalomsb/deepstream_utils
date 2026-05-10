@@ -11,6 +11,7 @@ pgie:
   network_height: 880
   conf_threshold: 0.5
   labels_file: /models/rfdetr_2xl/labels.txt
+  filter_class_ids: [1]   # person only (COCO 91)
 
 tracker:
   config_file: config_tracker.txt

@@ -16,3 +16,4 @@ class Config(AppConfig):
         self.network_height = pgie.get("network_height", 704)
         self.conf_threshold = pgie.get("conf_threshold", 0.5)
         self.labels_file = pgie.get("labels_file", "/models/rfdetr/labels.txt")
+        self.filter_class_ids = set(pgie.get("filter_class_ids", []))

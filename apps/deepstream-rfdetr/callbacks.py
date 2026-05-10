@@ -102,6 +102,8 @@ def pgie_src_probe(pad, info, u_data: Config):
                 config.conf_threshold,
             )
             for det in detections:
+                if config.filter_class_ids and det['class_id'] not in config.filter_class_ids:
+                    continue
                 add_obj_meta(
                     batch_meta, frame,
                     det['left'], det['top'], det['width'], det['height'],
